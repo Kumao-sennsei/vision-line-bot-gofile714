@@ -1,8 +1,8 @@
 {
   "name": "vision-line-bot-gofile714",
   "version": "1.0.0",
-  "description": "LINE Bot with GoFile and Vision",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "node index.js"
   },
@@ -10,6 +10,8 @@
     "@line/bot-sdk": "^7.4.0",
     "axios": "^1.6.8",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "form-data": "^4.0.0",
+    "raw-body": "^2.5.2"
   }
 }
