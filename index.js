@@ -1,48 +1,62 @@
-// index.js
+// ===== 環境変数読み込み =====
 require('dotenv').config();
 
+// ===== モジュール読み込み =====
 const express = require('express');
-const { Client, middleware } = require('@line/bot-sdk');
+const line = require('@line/bot-sdk');
 
+// ===== LINE Bot 設定 =====
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret:      process.env.LINE_CHANNEL_SECRET,
+  channelSecret:     process.env.LINE_CHANNEL_SECRET,
 };
+const client = new line.Client(config);
 
-const client = new Client(config);
-const app    = express();
-const port   = process.env.PORT || 8080;
+// ===== Express アプリ作成 =====
+const app = express();
+const port = process.env.PORT || 8080;
 
-// bodyParser は LINE ミドルウェアでやってくれます
-// GET /webhook  ── LINE の「検証」ボタン用
+// ===== Webhook 検証用エンドポイント（GET） =====
 app.get('/webhook', (req, res) => {
-  // 何でもいいので 200 を返せば検証成功
-  res.status(200).send('OK');
+  // LINE Developers の「検証」ボタンが叩くのはこの GET です
+  return res.status(200).send('OK');
 });
 
-// POST /webhook ── 実際のメッセージ受信ハンドラ
-app.post('/webhook', middleware(config), async (req, res) => {
-  try {
-    const results = await Promise.all(req.body.events.map(handleEvent));
-    res.status(200).json(results);
-  } catch (err) {
-    console.error('Webhook Error:', err);
-    res.status(500).end();
+// ===== Webhook 受信用エンドポイント（POST） =====
+app.post(
+  '/webhook',
+  line.middleware(config),
+  async (req, res) => {
+    try {
+      const results = await Promise.all(
+        req.body.events.map(handleEvent)
+      );
+      // 応答完了
+      res.json(results);
+    } catch (err) {
+      console.error('Webhook 処理中にエラー:', err);
+      res.status(500).end();
+    }
   }
-});
+);
 
+// ===== イベント処理関数 =====
 async function handleEvent(event) {
+  // テキスト以外は何もしない
   if (event.type !== 'message' || event.message.type !== 'text') {
-    return null;
+    return Promise.resolve(null);
   }
-  const userMessage = event.message.text;
-  const replyText   = `くまお先生だよ🐻: 「${userMessage}」って言ったね！えらいぞ〜✨`;
+
+  const userText = event.message.text;
+  const replyText = `くまお先生だよ🐻：「${userText}」って言ったね！えらいぞ～✨`;
+
   return client.replyMessage(event.replyToken, {
     type: 'text',
     text: replyText,
   });
 }
 
+// ===== サーバ起動 =====
 app.listen(port, () => {
-  console.log(`✨ Server running on ${port}`);
+  console.log(`✨ サーバ起動成功！ ポート番号: ${port}`);
 });
