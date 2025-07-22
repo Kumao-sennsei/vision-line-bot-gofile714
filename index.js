@@ -1,82 +1,115 @@
-require('dotenv').config();
+// ✅ GoFile対応＆/webhookルート定義済み 完全バージョン
+// ✅ 2025年7月17日成功構成をベースに改良（LINE返信あり・画像処理対応）
+
 const express = require('express');
 const line = require('@line/bot-sdk');
 const axios = require('axios');
+const dotenv = require('dotenv');
+dotenv.config();
 
+const app = express();
+const port = process.env.PORT || 8080;
+
+// LINE SDK config
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 
-const app = express();
-app.use(express.json());
-
 const client = new line.Client(config);
 
-// Webhookエンドポイント
+// LINE Webhook用
 app.post('/webhook', line.middleware(config), async (req, res) => {
-  Promise.all(req.body.events.map(handleEvent)).then((result) => res.json(result));
+  try {
+    const events = req.body.events;
+    const results = await Promise.all(events.map(handleEvent));
+    res.json(results);
+  } catch (error) {
+    console.error('Webhook Error:', error);
+    res.status(500).end();
+  }
 });
 
+// テスト用GETルート（オプション）
+app.get('/', (req, res) => {
+  res.send('Kumao先生 LINE Bot is alive!');
+});
+
+// 画像対応イベントハンドラー
 async function handleEvent(event) {
-  if (event.type !== 'message' || event.message.type !== 'image') {
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '画像を送ってください♪',
-    });
-  }
+  if (event.type !== 'message') return Promise.resolve(null);
 
-  try {
-    const messageId = event.message.id;
-    const stream = await client.getMessageContent(messageId);
+  const message = event.message;
 
-    const chunks = [];
-    stream.on('data', (chunk) => chunks.push(chunk));
-    stream.on('end', async () => {
+  if (message.type === 'image') {
+    try {
+      const stream = await client.getMessageContent(message.id);
+      const chunks = [];
+      for await (const chunk of stream) {
+        chunks.push(chunk);
+      }
       const buffer = Buffer.concat(chunks);
 
-      const uploadRes = await axios.post('https://store1.gofile.io/uploadFile', buffer, {
-        headers: { 'Content-Type': 'application/octet-stream' },
-      });
+      // GoFileにアップロード
+      const goFileRes = await axios.get('https://api.gofile.io/getServer');
+      const uploadUrl = goFileRes.data.data.server;
 
-      const imageUrl = uploadRes.data.data.downloadPage;
+      const formData = new FormData();
+      formData.append('file', buffer, 'image.jpg');
 
-      const aiRes = await axios.post('https://api.openai.com/v1/chat/completions', {
-        model: "gpt-4-vision-preview",
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: "この画像を見て質問に答えてください" },
-              { type: "image_url", image_url: { url: imageUrl } },
-            ],
-          },
-        ],
-        max_tokens: 1000,
-      }, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+      const goFileUpload = await axios.post(
+        `https://${uploadUrl}.gofile.io/uploadFile`,
+        formData,
+        { headers: formData.getHeaders() }
+      );
+
+      const directLink = goFileUpload.data.data.downloadPage;
+
+      // OpenAI APIへ送信
+      const visionRes = await axios.post(
+        'https://api.openai.com/v1/chat/completions',
+        {
+          model: 'gpt-4-vision-preview',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: 'この画像について教えてください' },
+                { type: 'image_url', image_url: { url: directLink } },
+              ],
+            },
+          ],
+          max_tokens: 1000,
         },
-      });
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
 
-      await client.replyMessage(event.replyToken, {
+      const replyText = visionRes.data.choices[0].message.content;
+
+      return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: aiRes.data.choices[0].message.content,
+        text: replyText,
       });
-    });
-  } catch (err) {
-    console.error('Error:', err.message);
+    } catch (error) {
+      console.error('Image Handling Error:', error);
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '画像の処理中にエラーが発生しました(；ω；)',
+      });
+    }
+  } else if (message.type === 'text') {
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '画像の処理中にエラーが発生しました( ;∀;)',
+      text: '画像を送ってくれたら解析するよ！(｀・ω・´)',
     });
   }
-
-  return null;
 }
 
-const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`Server running on ${port}`);
 });
