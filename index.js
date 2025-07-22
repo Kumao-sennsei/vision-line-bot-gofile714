@@ -1,8 +1,6 @@
-// GPTくんと会話風の自然な返信をする完全版くまおBot（Visionなし）
 require('dotenv').config();
 const express = require('express');
 const line = require('@line/bot-sdk');
-const { OpenAI } = require('openai');
 const app = express();
 const port = process.env.PORT || 8080;
 
@@ -12,7 +10,6 @@ const config = {
 };
 
 const client = new line.Client(config);
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // Webhook受信
 app.post('/webhook', line.middleware(config), async (req, res) => {
@@ -26,25 +23,28 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
   }
 });
 
-// GPTくん風の会話を生成
-async function gptKumaoReply(userMessage) {
-  try {
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content:
-            'あなたは「くまお先生」という優しくてちょっと面白い先生です。返答は親しみやすく、自然な日本語の会話口調で行ってください。生徒と本当に会話しているように返答してください。絵文字もたまに入れてOKです。',
-        },
-        { role: 'user', content: userMessage },
-      ],
-    });
+// くまお自然体・絵文字付きGPT風トーク
+function kumaoReply(text) {
+  if (!text) return 'なんか送ってくれた？もう一度ゆっくり教えてくれるとうれしいな🐻';
 
-    return completion.choices[0].message.content;
-  } catch (err) {
-    console.error('GPTくんエラー:', err);
-    return 'ちょっと今考え中かも…💦 もう一度送ってみてくれる？';
+  const lowered = text.toLowerCase();
+
+  if (lowered.includes('こんにちは')) {
+    return 'やっほー！くまおだよ🐻🌟今日も元気に来てくれてありがとっ！何か気になることある〜？';
+  } else if (lowered.includes('しんどい')) {
+    return 'そっかぁ…つらかったね😢💦 くまおがここにいるから、ちょっとだけでも気をゆるめてね☕️';
+  } else if (lowered.includes('ありがとう')) {
+    return 'うれしいなぁ〜☺️✨ こちらこそ、話してくれてありがと！いつでも頼ってねっ♪';
+  } else if (lowered.includes('できた')) {
+    return 'おぉ〜！やったね！✨👏 ちゃんと自分をほめてあげて〜！くまおも拍手〜🎉';
+  } else if (lowered.includes('ばいばい') || lowered.includes('おやすみ')) {
+    return 'おしゃべり楽しかった〜🐻🌙 おやすみ〜！またねっ！いい夢見てね💤';
+  } else if (lowered.includes('ほんと') || lowered.includes('まじ') || lowered.includes('ほんま')) {
+    return 'えっ、ほんとに！？😳それ気になる〜！もっと教えてほしいかも♪';
+  } else if (lowered.includes('進化')) {
+    return '進化っていい言葉だよねぇ✨くまおも日々アップデート中…（ﾄﾞｷﾄﾞｷ）';
+  } else {
+    return 'うんうん、そうなんだ〜☺️それってけっこう大事なことかもね！よかったら続きも聞かせて♪';
   }
 }
 
@@ -53,7 +53,7 @@ async function handleEvent(event) {
   if (event.type !== 'message' || !event.message.text) return null;
 
   const userText = event.message.text;
-  const reply = await gptKumaoReply(userText);
+  const reply = kumaoReply(userText);
 
   return client.replyMessage(event.replyToken, {
     type: 'text',
@@ -62,5 +62,5 @@ async function handleEvent(event) {
 }
 
 app.listen(port, () => {
-  console.log(`🐻 くまおGPT先生（GPTくん会話対応）はポート ${port} で稼働中です！`);
+  console.log(`🐻 くまお先生（自然会話＋絵文字）ポート ${port} で稼働中だよっ！`);
 });
