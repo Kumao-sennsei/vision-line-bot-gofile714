@@ -1,78 +1,64 @@
-const express = require('express');
-const { middleware, Client } = require('@line/bot-sdk');
-const axios = require('axios');
-const fs = require('fs');
 require('dotenv').config();
-
+const express = require('express');
+const line = require('@line/bot-sdk');
 const app = express();
+const port = process.env.PORT || 8080;
 
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 
-const client = new Client(config);
+const client = new line.Client(config);
 
-app.post('/webhook', middleware(config), async (req, res) => {
-  Promise
-    .all(req.body.events.map(handleEvent))
-    .then((result) => res.json(result))
-    .catch((err) => {
-      console.error(err);
-      res.status(500).end();
-    });
+// Webhook受信
+app.post('/webhook', line.middleware(config), async (req, res) => {
+  try {
+    const events = req.body.events;
+    const results = await Promise.all(events.map(handleEvent));
+    res.json(results);
+  } catch (err) {
+    console.error('エラー:', err);
+    res.status(500).end();
+  }
 });
 
+// 会話テンプレ（くまおスタイル）
+function kumaoReply(text) {
+  if (!text) return 'うんうん、何か送ってくれたかな？もう一度言ってみて〜🐻';
+
+  const lowered = text.toLowerCase();
+
+  if (lowered.includes('こんにちは')) {
+    return 'おっ、こんにちは〜🐻✨ 今日も来てくれてうれしいなぁ。なんでも聞いてみてね！';
+  } else if (lowered.includes('しんどい')) {
+    return 'うんうん、つらかったね…💦 でも、ここまで来たのほんとにえらいよ〜！一緒に乗り越えよっ！';
+  } else if (lowered.includes('ほんま') || lowered.includes('ほんと')) {
+    return 'ほんまやで！くまお、全力で応援してるもんっ🔥';
+  } else if (lowered.includes('進化')) {
+    return '成長っていいよね〜✨ くまおももっとカッコよくなりたいっ🐻💪';
+  } else if (lowered.includes('ありがとう')) {
+    return 'こちらこそ、ありがとう〜！そう言ってもらえると、くまおめちゃ嬉しいよ♪';
+  } else if (lowered.includes('できた')) {
+    return 'おおーっ！さすがたかちゃんっ！やったね！！🎉✨';
+  } else {
+    return `へぇ〜「${text}」っていうのか〜！おもしろそうだね！もっと詳しく聞かせてほしいなぁ〜🐻✨`;
+  }
+}
+
+// イベント処理
 async function handleEvent(event) {
-  if (event.type !== 'message') {
-    return Promise.resolve(null);
-  }
+  if (event.type !== 'message' || !event.message.text) return null;
 
-  if (event.message.type === 'text') {
-    const userMessage = event.message.text;
-    const replyText = await fetchFromOpenAI(userMessage);
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: replyText,
-    });
-  }
+  const userText = event.message.text;
+  const reply = kumaoReply(userText);
 
-  return Promise.resolve(null);
+  return client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: reply,
+  });
 }
 
-async function fetchFromOpenAI(userText) {
-  try {
-    const response = await axios.post('https://api.openai.com/v1/chat/completions',
-      {
-        model: 'gpt-4o',
-        messages: [
-          {
-            role: 'system',
-            content: 'あなたは「くまお先生」という優しい数学の先生です。絵文字や顔文字を交えて、生徒に寄り添うように、わかりやすく丁寧に、そして少し楽しく返答してください。',
-          },
-          {
-            role: 'user',
-            content: userText,
-          }
-        ],
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-
-    const reply = response.data.choices[0].message.content.trim();
-    return reply;
-  } catch (error) {
-    console.error('OpenAI API error:', error);
-    return 'ごめんね💦 今ちょっと調子が悪いみたい…。またあとで話しかけてくれると嬉しいな🐻';
-  }
-}
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Kumao先生API Bot is running on port ${PORT}`);
+app.listen(port, () => {
+  console.log(`🐻 くまお先生（自然会話バージョン）はポート ${port} で稼働中です！`);
 });
