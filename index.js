@@ -1,6 +1,8 @@
 require('dotenv').config();
 const express = require('express');
 const line = require('@line/bot-sdk');
+const { OpenAI } = require('openai');
+
 const app = express();
 const port = process.env.PORT || 8080;
 
@@ -10,6 +12,7 @@ const config = {
 };
 
 const client = new line.Client(config);
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // Webhook受信
 app.post('/webhook', line.middleware(config), async (req, res) => {
@@ -23,28 +26,29 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
   }
 });
 
-// GPT風・くまお自然会話テンプレ
-function kumaoReply(text) {
-  if (!text) return 'なんか送ってくれた？もう一度ゆっくり教えてくれるとうれしいな🐻';
+// OpenAI GPTくん完全連携くまお返信
+async function kumaoGPTReply(text) {
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content: 'あなたは優しくて面白い「くまお先生」です。ユーザーの言葉に自然に反応しながら、温かくて親しみやすい口調で対話してください。形式的な返しは避け、日常会話のように返してください。絵文字も適度に使ってください。',
+        },
+        {
+          role: 'user',
+          content: text,
+        },
+      ],
+      temperature: 0.8,
+    });
 
-  const lowered = text.toLowerCase();
-
-  if (lowered.includes('こんにちは')) {
-    return 'こんにちは〜！今日も来てくれてうれしいな✨今日はどんなことを話したい気分？';
-  } else if (lowered.includes('しんどい')) {
-    return 'うわぁ、それは大変だったね…😢ちょっと深呼吸して、少しだけくまおと話して気分転換しよっか。';
-  } else if (lowered.includes('ほんま') || lowered.includes('ほんと')) {
-    return 'そうなんだね〜！それ、けっこう大事なことかも。もうちょっと詳しく教えてくれる？';
-  } else if (lowered.includes('進化')) {
-    return '進化…！それってワクワクする言葉だよね！何か変わりたいことがあるのかな？';
-  } else if (lowered.includes('ありがとう')) {
-    return 'わぁ、そんなふうに言ってもらえて嬉しいな☺️くまおもがんばってよかったって思えるよ！';
-  } else if (lowered.includes('できた')) {
-    return 'すごいすごい！やり遂げたね👏✨その瞬間、ちゃんと自分を褒めてあげてね〜！';
-  } else if (lowered.includes('ばいばい') || lowered.includes('おやすみ')) {
-    return '今日も話せて楽しかったよ♪おやすみなさい🌙また元気におしゃべりしようね🐻';
-  } else {
-    return `うんうん、それってちょっと気になる話だね！良かったらもうちょっと聞かせて〜☺️`;
+    const reply = response.choices[0].message.content;
+    return reply;
+  } catch (error) {
+    console.error('OpenAI APIエラー:', error);
+    return 'ちょっとだけ休憩中かも…もう一度お話してくれるとうれしいな🐻';
   }
 }
 
@@ -53,7 +57,7 @@ async function handleEvent(event) {
   if (event.type !== 'message' || !event.message.text) return null;
 
   const userText = event.message.text;
-  const reply = kumaoReply(userText);
+  const reply = await kumaoGPTReply(userText);
 
   return client.replyMessage(event.replyToken, {
     type: 'text',
@@ -62,5 +66,5 @@ async function handleEvent(event) {
 }
 
 app.listen(port, () => {
-  console.log(`🐻 くまお先生（自然会話GPT風）はポート ${port} で稼働中です！`);
+  console.log(`🐻 くまお先生（完全GPTくん連携版）がポート ${port} で稼働中です！`);
 });
