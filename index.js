@@ -1,136 +1,123 @@
-
 const express = require('express');
-const line = require('@line/bot-sdk');
+const { middleware, Client } = require('@line/bot-sdk');
 const axios = require('axios');
-const { Readable } = require('stream');
-
-require('dotenv').config();
-
+const rawBodySaver = require('raw-body');
+const fs = require('fs');
 const app = express();
-app.use(express.json({ limit: '10mb' }));
+require('dotenv').config();
 
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 
-const client = new line.Client(config);
+const client = new Client(config);
 
-app.post('/webhook', line.middleware(config), async (req, res) => {
-  const events = req.body.events;
-  const results = await Promise.all(events.map(handleEvent));
-  res.json(results);
+// 生データ取得用（署名検証のため）
+app.use((req, res, next) => {
+  rawBodySaver(req, res, (err) => {
+    if (err) return next(err);
+    req.rawBody = req.body;
+    next();
+  });
+});
+app.use(middleware(config));
+
+app.post('/webhook', (req, res) => {
+  Promise.all(req.body.events.map(handleEvent)).then((result) => res.json(result));
 });
 
 async function handleEvent(event) {
   if (event.type !== 'message') return null;
 
-  const userMessage = event.message;
+  if (event.message.type === 'image') {
+    const imageBuffer = await client.getMessageContent(event.message.id)
+      .then(stream => {
+        return new Promise((resolve, reject) => {
+          const chunks = [];
+          stream.on('data', chunk => chunks.push(chunk));
+          stream.on('end', () => resolve(Buffer.concat(chunks)));
+          stream.on('error', reject);
+        });
+      });
 
-  if (userMessage.type === 'text') {
-    return await handleText(event, userMessage.text);
-  } else if (userMessage.type === 'image') {
-    return await handleImage(event);
+    const base64Image = imageBuffer.toString('base64');
+    const visionPrompt = "この画像をやさしく丁寧に会話風で解説してください。";
+    const gptRes = await callOpenAIWithVision(base64Image, visionPrompt);
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: gptRes || "画像をうまく処理できなかったみたい…ごめんね💦"
+    });
+  }
+
+  if (event.message.type === 'text') {
+    const userText = event.message.text;
+    const prompt = `くまお先生として、会話風にやさしく丁寧に「${userText}」について解説してあげてください。必要に応じてWeb検索も使ってください。`;
+
+    const gptRes = await callOpenAIWithText(prompt);
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: gptRes || "うまくお話できなかったかも…もう一度聞いてくれる？🐻"
+    });
   }
 
   return null;
 }
 
-async function handleText(event, text) {
-  const messages = [
-    {
-      role: 'system',
-      content: 'あなたはくまの先生です。やさしくて面白くて丁寧で、自然な会話スタイルを大切にします。必要に応じてWeb検索などで情報を調べて、わかりやすく説明します。',
-    },
-    {
-      role: 'user',
-      content: text,
-    },
-  ];
-
+async function callOpenAIWithText(text) {
   try {
-    const response = await axios.post(
-      'https://api.openai.com/v1/chat/completions',
-      {
-        model: 'gpt-4o',
-        messages: messages,
-        tools: [
-          {
-            type: 'function',
-            function: {
-              name: 'web_search',
-              description: 'リアルタイム検索が必要なときにWeb検索します。',
-              parameters: {
-                query: { type: 'string' }
-              }
-            }
-          }
-        ],
-        tool_choice: 'auto',
-        max_tokens: 1000,
+    const response = await axios.post('https://api.openai.com/v1/chat/completions', {
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: "あなたはくまの先生です。やさしく丁寧に解説し、自然な会話スタイルを重視します。" },
+        { role: "user", content: text }
+      ],
+      tool_choice: "auto"
+    }, {
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
       },
-      {
-        headers: {
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-
-    const replyText = response.data.choices[0].message.content || 'ごめんね、うまく答えられなかったみたい🐻💦';
-    return client.replyMessage(event.replyToken, { type: 'text', text: replyText });
-  } catch (err) {
-    console.error(err);
-    return client.replyMessage(event.replyToken, { type: 'text', text: 'エラーが発生しちゃったみたい…もう一度試してみてね🐾' });
+      maxBodyLength: Infinity,
+    });
+    return response.data.choices[0].message.content;
+  } catch (error) {
+    console.error("Text API Error:", error.response?.data || error.message);
+    return null;
   }
 }
 
-async function handleImage(event) {
+async function callOpenAIWithVision(base64Image, prompt) {
   try {
-    const stream = await client.getMessageContent(event.message.id);
-    const chunks = [];
-    for await (const chunk of stream) chunks.push(chunk);
-    const buffer = Buffer.concat(chunks);
-
-    const base64Image = buffer.toString('base64');
-    const visionPrompt = [
-      {
-        role: 'system',
-        content: 'あなたは画像を見て優しく丁寧に解説する先生です。楽しく自然な会話をしながら、生徒の質問に答えます。'
-      },
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: 'この画像をやさしく解説してほしいな！🐻✨' },
-          { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Image}` } }
-        ]
-      }
-    ];
-
-    const visionRes = await axios.post(
-      'https://api.openai.com/v1/chat/completions',
-      {
-        model: 'gpt-4o',
-        messages: visionPrompt,
-        max_tokens: 1000,
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
+    const response = await axios.post('https://api.openai.com/v1/chat/completions', {
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: "あなたはくまの先生です。画像をやさしく丁寧に自然な会話スタイルで説明します。" },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Image}` } }
+          ]
         }
-      }
-    );
-
-    const answer = visionRes.data.choices[0].message.content || '画像を解説できなかったみたい💦';
-    return client.replyMessage(event.replyToken, { type: 'text', text: answer });
-
-  } catch (err) {
-    console.error('Image error:', err);
-    return client.replyMessage(event.replyToken, { type: 'text', text: '画像の処理中にエラーが発生しちゃった…😢' });
+      ]
+    }, {
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      maxBodyLength: Infinity,
+    });
+    return response.data.choices[0].message.content;
+  } catch (error) {
+    console.error("Vision API Error:", error.response?.data || error.message);
+    return null;
   }
 }
 
-app.listen(3000, () => {
-  console.log('くまお先生はポート3000で稼働中です🐻‍❄️📡');
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`くまお先生はポート${port}で稼働中です🧸❄`);
 });
