@@ -1,17 +1,16 @@
 {
   "name": "vision-line-bot",
   "version": "1.0.0",
+  "description": "くまお先生のLINE Bot（GPT-4o対応）",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "@line/bot-sdk": "^7.5.2",
-    "axios": "^1.6.7",
+    "@line/bot-sdk": "^7.5.1",
+    "axios": "^1.6.8",
+    "body-parser": "^1.20.2",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "form-data": "^4.0.0",
-    "multer": "^1.4.5-lts.1",
-    "openai": "^4.49.0"
+    "express": "^4.18.2"
   }
 }
