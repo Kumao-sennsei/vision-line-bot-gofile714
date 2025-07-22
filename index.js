@@ -1,123 +1,128 @@
 const express = require('express');
-const { middleware, Client } = require('@line/bot-sdk');
+const line = require('@line/bot-sdk');
 const axios = require('axios');
 const rawBodySaver = require('raw-body');
-const fs = require('fs');
-const app = express();
+const { Readable } = require('stream');
 require('dotenv').config();
+
+const app = express();
+const port = process.env.PORT || 3000;
+
+app.use((req, res, next) => {
+  if (req.headers['content-type']?.includes('application/json')) {
+    rawBodySaver(req, res, next);
+  } else {
+    express.json()(req, res, next);
+  }
+});
 
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 
-const client = new Client(config);
+const client = new line.Client(config);
 
-// 生データ取得用（署名検証のため）
-app.use((req, res, next) => {
-  rawBodySaver(req, res, (err) => {
-    if (err) return next(err);
-    req.rawBody = req.body;
-    next();
-  });
-});
-app.use(middleware(config));
-
-app.post('/webhook', (req, res) => {
-  Promise.all(req.body.events.map(handleEvent)).then((result) => res.json(result));
+app.post('/webhook', line.middleware(config), async (req, res) => {
+  try {
+    const events = req.body.events;
+    const results = await Promise.all(events.map(handleEvent));
+    res.json(results);
+  } catch (err) {
+    console.error("Webhook Error:", err);
+    res.status(500).end();
+  }
 });
 
 async function handleEvent(event) {
-  if (event.type !== 'message') return null;
+  if (event.type !== 'message') return;
 
-  if (event.message.type === 'image') {
-    const imageBuffer = await client.getMessageContent(event.message.id)
-      .then(stream => {
-        return new Promise((resolve, reject) => {
-          const chunks = [];
-          stream.on('data', chunk => chunks.push(chunk));
-          stream.on('end', () => resolve(Buffer.concat(chunks)));
-          stream.on('error', reject);
-        });
+  const userMessage = event.message.type === 'text' ? event.message.text : '';
+  const imageId = event.message.type === 'image' ? event.message.id : null;
+
+  let imageUrl = null;
+
+  if (imageId) {
+    try {
+      const stream = await client.getMessageContent(imageId);
+      const buffer = await streamToBuffer(stream);
+      const goFileRes = await axios.post('https://store1.gofile.io/uploadFile', buffer, {
+        headers: { 'Content-Type': 'application/octet-stream' },
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity
       });
-
-    const base64Image = imageBuffer.toString('base64');
-    const visionPrompt = "この画像をやさしく丁寧に会話風で解説してください。";
-    const gptRes = await callOpenAIWithVision(base64Image, visionPrompt);
-
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: gptRes || "画像をうまく処理できなかったみたい…ごめんね💦"
-    });
+      imageUrl = goFileRes.data.data.downloadPage;
+    } catch (err) {
+      console.error("Image upload error:", err);
+    }
   }
 
-  if (event.message.type === 'text') {
-    const userText = event.message.text;
-    const prompt = `くまお先生として、会話風にやさしく丁寧に「${userText}」について解説してあげてください。必要に応じてWeb検索も使ってください。`;
+  const prompt = `
+あなたはくまの先生です。やさしくて面白くて丁寧で、自然な会話スタイルを大切にします。
+生徒の質問に答えるだけでなく、画像があればそれを見て説明し、必要に応じてWeb検索もします。
+`;
 
-    const gptRes = await callOpenAIWithText(prompt);
+  const messages = [
+    { role: "system", content: prompt },
+    { role: "user", content: userMessage || "こんにちは！" }
+  ];
 
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: gptRes || "うまくお話できなかったかも…もう一度聞いてくれる？🐻"
-    });
-  }
+  const tools = [
+    {
+      type: "function",
+      function: {
+        name: "web_search",
+        description: "リアルタイム情報が必要なときにWeb検索します。",
+        parameters: { query: { type: "string" } }
+      }
+    }
+  ];
 
-  return null;
-}
-
-async function callOpenAIWithText(text) {
-  try {
-    const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: "あなたはくまの先生です。やさしく丁寧に解説し、自然な会話スタイルを重視します。" },
-        { role: "user", content: text }
-      ],
-      tool_choice: "auto"
-    }, {
-      headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      maxBodyLength: Infinity,
-    });
-    return response.data.choices[0].message.content;
-  } catch (error) {
-    console.error("Text API Error:", error.response?.data || error.message);
-    return null;
-  }
-}
-
-async function callOpenAIWithVision(base64Image, prompt) {
-  try {
-    const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: "あなたはくまの先生です。画像をやさしく丁寧に自然な会話スタイルで説明します。" },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Image}` } }
-          ]
-        }
+  if (imageUrl) {
+    messages.push({
+      role: "user",
+      content: [
+        { type: "text", text: "この画像を見て説明して！" },
+        { type: "image_url", image_url: { url: imageUrl } }
       ]
+    });
+  }
+
+  try {
+    const res = await axios.post("https://api.openai.com/v1/chat/completions", {
+      model: "gpt-4o",
+      messages,
+      tools,
+      tool_choice: "auto",
+      max_tokens: 1000
     }, {
       headers: {
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      maxBodyLength: Infinity,
+        "Content-Type": "application/json"
+      }
     });
-    return response.data.choices[0].message.content;
-  } catch (error) {
-    console.error("Vision API Error:", error.response?.data || error.message);
-    return null;
+
+    const answer = res.data.choices[0].message.content || "ふむふむ…ちょっと難しかったかも 🐻💦";
+    return client.replyMessage(event.replyToken, { type: 'text', text: answer });
+
+  } catch (err) {
+    console.error("GPT API error:", err?.response?.data || err);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: "💥 エラーが出ちゃったみたい！もう一回送ってくれる？🐻📸"
+    });
   }
 }
 
-const port = process.env.PORT || 3000;
+function streamToBuffer(stream) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    stream.on('data', chunk => chunks.push(chunk));
+    stream.on('end', () => resolve(Buffer.concat(chunks)));
+    stream.on('error', reject);
+  });
+}
+
 app.listen(port, () => {
-  console.log(`くまお先生はポート${port}で稼働中です🧸❄`);
+  console.log(`くまお先生はポート${port}で稼働中です🐻✨🎶`);
 });
