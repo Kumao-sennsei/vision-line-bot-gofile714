@@ -10,8 +10,7 @@ const config = {
 
 const client = new line.Client(config);
 
-app.use(express.json());
-
+// 🟡 ここでは JSON をまだ使わない！
 app.post('/webhook', line.middleware(config), async (req, res) => {
   try {
     const events = req.body.events;
@@ -23,6 +22,7 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
   }
 });
 
+// 🔵 その後に必要なら JSON 使っていい（今回は不要なので不要）
 async function handleEvent(event) {
   if (event.type !== 'message' || !event.message.text) {
     return null;
