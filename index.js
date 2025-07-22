@@ -23,26 +23,28 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
   }
 });
 
-// 会話テンプレ（くまおスタイル）
+// 自然なGPT風くまお会話テンプレ
 function kumaoReply(text) {
-  if (!text) return 'うんうん、何か送ってくれたかな？もう一度言ってみて〜🐻';
+  if (!text) return 'ん？なんか送ってくれたのかな？もう一度ゆっくり教えてくれると嬉しいな🐻';
 
   const lowered = text.toLowerCase();
 
   if (lowered.includes('こんにちは')) {
-    return 'おっ、こんにちは〜🐻✨ 今日も来てくれてうれしいなぁ。なんでも聞いてみてね！';
+    return 'こんにちは〜！今日も来てくれてうれしいよ☀️ なにか聞きたいことある？どんなことでもOKだよ〜！';
   } else if (lowered.includes('しんどい')) {
-    return 'うんうん、つらかったね…💦 でも、ここまで来たのほんとにえらいよ〜！一緒に乗り越えよっ！';
+    return 'そっか…しんどかったんだね😢 無理しないで、くまおがそばにいるから少しずつ話してみて！';
   } else if (lowered.includes('ほんま') || lowered.includes('ほんと')) {
-    return 'ほんまやで！くまお、全力で応援してるもんっ🔥';
+    return 'うんうん、ほんとだよ〜！気持ち、ちゃんと伝わってるよ✨';
   } else if (lowered.includes('進化')) {
-    return '成長っていいよね〜✨ くまおももっとカッコよくなりたいっ🐻💪';
+    return '進化したくなる気持ち、すごく素敵だよ！一緒に少しずつでも成長していこうね💪🐻';
   } else if (lowered.includes('ありがとう')) {
-    return 'こちらこそ、ありがとう〜！そう言ってもらえると、くまおめちゃ嬉しいよ♪';
+    return 'こちらこそ〜！ありがとうって言ってもらえるのが一番うれしいんだよね☺️✨';
   } else if (lowered.includes('できた')) {
-    return 'おおーっ！さすがたかちゃんっ！やったね！！🎉✨';
+    return 'やった〜！！🎉 頑張ったね、めちゃくちゃ偉いよっ！！次もきっとうまくいくよ♪';
+  } else if (lowered.includes('ばいばい') || lowered.includes('おやすみ')) {
+    return '今日もありがとうね🌙 ゆっくり休んで、また明日も話せるの楽しみにしてるね🐻💤';
   } else {
-    return `へぇ〜「${text}」っていうのか〜！おもしろそうだね！もっと詳しく聞かせてほしいなぁ〜🐻✨`;
+    return `うんうん、なるほどなるほど。${text}ってことだよね？ ちょっとおもしろそうだし、もうちょっと聞かせてくれたら嬉しいな〜😊`;
   }
 }
 
@@ -60,5 +62,5 @@ async function handleEvent(event) {
 }
 
 app.listen(port, () => {
-  console.log(`🐻 くまお先生（自然会話バージョン）はポート ${port} で稼働中です！`);
+  console.log(`🐻 くまお先生（自然会話・GPT風バージョン）はポート ${port} で稼働中です！`);
 });
