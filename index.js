@@ -2,48 +2,52 @@ require('dotenv').config();
 const express = require('express');
 const line = require('@line/bot-sdk');
 const axios = require('axios');
-const rawBodySaver = (req, res, buf) => {
-  if (buf && buf.length) {
-    req.rawBody = buf.toString('utf8');
-  }
-};
-
-const app = express();
-app.use(express.json({ verify: rawBodySaver }));
+const rawBody = require('raw-body');
+const FormData = require('form-data');
+const { Readable } = require('stream');
 
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 
+const app = express();
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf.toString();
+  }
+}));
+
 const client = new line.Client(config);
 
-// Gofileに画像アップロード
+// Gofileアップロード関数（Buffer対応）
 async function uploadToGofile(buffer) {
-  const response = await axios.get('https://api.gofile.io/getServer');
-  const server = response.data.data.server;
+  const serverRes = await axios.get('https://api.gofile.io/getServer');
+  const server = serverRes.data.data.server;
 
-  const formData = new FormData();
-  formData.append('file', new Blob([buffer]), 'image.png');
+  const form = new FormData();
+  form.append('file', buffer, { filename: 'image.png', contentType: 'image/png' });
 
-  const uploadRes = await axios.post(`https://${server}.gofile.io/uploadFile`, formData, {
-    headers: formData.getHeaders()
-  });
+  const uploadRes = await axios.post(
+    `https://${server}.gofile.io/uploadFile`,
+    form,
+    { headers: form.getHeaders() }
+  );
 
   return uploadRes.data.data.downloadPage;
 }
 
-// OpenAIに画像を送って解析
+// OpenAI Vision解析関数
 async function analyzeImage(imageUrl) {
   const response = await axios.post(
     'https://api.openai.com/v1/chat/completions',
     {
-      model: 'gpt-4o',
+      model: 'gpt-4-vision-preview',
       messages: [
         {
           role: 'user',
           content: [
-            { type: 'text', text: 'この画像を説明してください。' },
+            { type: 'text', text: 'この画像の内容をやさしく説明して！' },
             { type: 'image_url', image_url: { url: imageUrl } }
           ],
         },
@@ -52,11 +56,12 @@ async function analyzeImage(imageUrl) {
     },
     {
       headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
     }
   );
+
   return response.data.choices[0].message.content.trim();
 }
 
@@ -65,10 +70,11 @@ async function handleEvent(event) {
   if (event.type !== 'message') return null;
 
   if (event.message.type === 'text') {
-    // テキストメッセージへの返信
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: `🐻 くまお先生だよ！\n\n「${event.message.text}」って言ったね？`,
+      text: `おっ、こんにちはだね〜🐻✨
+今日も質問してくれてありがとう♪
+「${event.message.text}」って言ってくれたんだね！`,
     });
   }
 
@@ -76,22 +82,29 @@ async function handleEvent(event) {
     try {
       const stream = await client.getMessageContent(event.message.id);
       const chunks = [];
-      stream.on("data", (chunk) => chunks.push(chunk));
+      stream.on('data', (chunk) => chunks.push(chunk));
       return new Promise((resolve, reject) => {
-        stream.on("end", async () => {
+        stream.on('end', async () => {
           try {
             const buffer = Buffer.concat(chunks);
             const gofileUrl = await uploadToGofile(buffer);
             const result = await analyzeImage(gofileUrl);
+
             resolve(client.replyMessage(event.replyToken, {
-              type: "text",
-              text: result,
+              type: 'text',
+              text: `画像を見せてくれてありがとう📷✨
+これはたぶんこういうことだよ〜👇
+
+${result}
+
+どう？ちょっと分かったかな？🐻`,
             }));
-          } catch (err) {
-            console.error("画像解析エラー:", err);
+          } catch (error) {
+            console.error("Vision処理エラー:", error);
             resolve(client.replyMessage(event.replyToken, {
-              type: "text",
-              text: "画像の処理中にエラーが出たよ💦",
+              type: 'text',
+              text: 'うーん、ちょっと画像の中身を読むのに失敗しちゃったみたい💦
+別の画像でもう一度試してみてね🐻',
             }));
           }
         });
@@ -99,30 +112,32 @@ async function handleEvent(event) {
     } catch (err) {
       console.error("画像取得エラー:", err);
       return client.replyMessage(event.replyToken, {
-        type: "text",
-        text: "画像を取得できなかったよ💦",
+        type: 'text',
+        text: '画像のデータをうまく取得できなかったよ💦
+もう一回送ってみてもらえる？',
       });
     }
   }
 
-  // その他（音声・動画など）はスルー
   return client.replyMessage(event.replyToken, {
-    type: "text",
-    text: "対応していないメッセージ形式です🙇‍♂️",
+    type: 'text',
+    text: 'ごめんね、まだそのメッセージには対応してないみたい💦
+テキストか画像で送ってみてね〜🐻',
   });
 }
 
-// Webhookエンドポイントを追加（最重要！）
+// Webhook
 app.post('/webhook', line.middleware(config), (req, res) => {
   Promise
     .all(req.body.events.map(handleEvent))
     .then((result) => res.json(result))
     .catch((err) => {
-      console.error(err);
+      console.error("Webhookエラー:", err);
       res.status(500).end();
     });
 });
 
-// サーバー起動
 const port = process.env.PORT || 8080;
-app.listen(port, () => console.log("🐻 くまお先生はポート 8080 で稼働中です！"));
+app.listen(port, () => {
+  console.log("🐻 くまお先生はポート", port, "で稼働中です！");
+});
