@@ -1,52 +1,48 @@
-// 環境変数読み込み
+// index.js
 require('dotenv').config();
 
-// モジュール読み込み
 const express = require('express');
 const { Client, middleware } = require('@line/bot-sdk');
 
-// LINE Bot の設定
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.LINE_CHANNEL_SECRET,
+  channelSecret:      process.env.LINE_CHANNEL_SECRET,
 };
 
-// LINE SDK クライアントと Express アプリを作成
 const client = new Client(config);
-const app = express();
-const port = process.env.PORT || 8080;
+const app    = express();
+const port   = process.env.PORT || 8080;
 
-// Webhook エンドポイント（ここが必須！）
+// bodyParser は LINE ミドルウェアでやってくれます
+// GET /webhook  ── LINE の「検証」ボタン用
+app.get('/webhook', (req, res) => {
+  // 何でもいいので 200 を返せば検証成功
+  res.status(200).send('OK');
+});
+
+// POST /webhook ── 実際のメッセージ受信ハンドラ
 app.post('/webhook', middleware(config), async (req, res) => {
   try {
-    // イベント毎に処理
     const results = await Promise.all(req.body.events.map(handleEvent));
-    // 全て成功すれば 200 OK
     res.status(200).json(results);
   } catch (err) {
-    console.error('Webhook handling error:', err);
+    console.error('Webhook Error:', err);
     res.status(500).end();
   }
 });
 
-// イベント処理関数
 async function handleEvent(event) {
-  // メッセージかつテキストのみを処理
   if (event.type !== 'message' || event.message.type !== 'text') {
     return null;
   }
-
   const userMessage = event.message.text;
-  const replyText = `くまお先生だよ🐻: 「${userMessage}」って言ったね！えらいぞ〜✨`;
-
-  // 返信
+  const replyText   = `くまお先生だよ🐻: 「${userMessage}」って言ったね！えらいぞ〜✨`;
   return client.replyMessage(event.replyToken, {
     type: 'text',
     text: replyText,
   });
 }
 
-// サーバー起動
 app.listen(port, () => {
   console.log(`✨ Server running on ${port}`);
 });
