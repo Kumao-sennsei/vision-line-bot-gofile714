@@ -1,7 +1,6 @@
 require('dotenv').config();
 const express = require('express');
 const line = require('@line/bot-sdk');
-const axios = require('axios');
 const app = express();
 const port = process.env.PORT || 8080;
 
@@ -24,115 +23,57 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
   }
 });
 
-// Vision APIを使って画像をGPT-4oで解析
-async function analyzeImage(imageUrl) {
-  try {
-    const response = await axios.post(
-      'https://api.openai.com/v1/chat/completions',
-      {
-        model: 'gpt-4o',
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: 'この画像を見て、分かりやすく説明してくれる？' },
-              { type: 'image_url', image_url: { url: imageUrl } },
-            ],
-          },
-        ],
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-
-    const content = response.data.choices[0].message.content;
-    return content || 'うまく読み取れなかったみたい…もう一回送ってくれる？🐻';
-  } catch (error) {
-    console.error('Vision APIエラー:', error.response?.data || error.message);
-    return '画像の処理中にエラーが発生しちゃったみたい😢 もう一度送ってもらえるかな？';
-  }
-}
-
-// GPT風・くまお自然会話テンプレ
-function kumaoReply(text) {
-  if (!text) return 'なんか送ってくれた？もう一回ゆっくり聞かせて〜🐻';
+// くまお先生の自然会話ロジック（人間みたいな返信）
+function kumaoNaturalReply(text) {
+  if (!text) return 'あれれ？メッセージが空っぽかも💦もう一度ゆっくり教えてくれるとうれしいな〜🐻';
 
   const lowered = text.toLowerCase();
 
-  if (lowered.includes('こんにちは')) {
-    return 'やっほ〜！今日も来てくれてうれしいな✨何かあったの？気軽に話してね🐻';
-  } else if (lowered.includes('しんどい')) {
-    return 'そっか…しんどかったんだね😢 ちょっとここでひと息つこっか。くまおはいつでもここにいるよ。';
-  } else if (lowered.includes('ありがとう')) {
-    return 'わあ、ありがとうって言ってもらえて嬉しいな☺️ なんだか元気でちゃうね！';
-  } else if (lowered.includes('できた')) {
-    return 'おおお！すごいじゃん✨そのがんばり、ちゃんと自分で褒めてあげてね〜！';
-  } else if (lowered.includes('おやすみ') || lowered.includes('ばいばい')) {
-    return '今日もおしゃべりできてうれしかったよ〜🌙また明日も話そっか♪おやすみなさい〜🐻';
-  } else {
-    return 'うんうん、なんか気になることがあるんだね？くまおでよければ、話してみて☺️';
+  // 質問っぽいものにはちゃんと考えて返す
+  if (lowered.includes('どう思う') || lowered.includes('なんで') || lowered.includes('理由') || lowered.includes('と思う？')) {
+    return 'うーん、それは深い質問だね。くまおなりに考えてみるとね…たぶん、そうなるのは◯◯が関係してるんじゃないかなって思うよ🐻💡（※本当の理由はもう少し詳しく教えてもらえたら嬉しいな〜）';
   }
+
+  if (lowered.includes('こんにちは') || lowered.includes('こんばんは')) {
+    return 'やっほ〜！来てくれてうれしいな✨今日はどんな話をしに来てくれたの？聞かせて聞かせて〜🎵';
+  }
+
+  if (lowered.includes('しんどい') || lowered.includes('疲れた')) {
+    return 'そっかぁ、がんばったんだね😢 無理せず、ちょっとだけゆっくりしよ？くまおはここにいるから大丈夫だよ💤';
+  }
+
+  if (lowered.includes('ありがとう') || lowered.includes('助かった')) {
+    return 'わぁ、そんなふうに言ってくれるなんて…感激だよ〜☺️✨くまお、これからももっとがんばっちゃう！';
+  }
+
+  if (lowered.includes('できた') || lowered.includes('終わった')) {
+    return 'それはすごいじゃん！👏✨やり遂げた自分、ちゃんと褒めてあげてね〜！何か面白かったエピソードとかあった？';
+  }
+
+  if (lowered.includes('意味が分からない') || lowered.includes('わからない')) {
+    return 'うんうん、むずかしかったかな？大丈夫、一緒にゆっくり整理していこうね📘💭どこが引っかかったか教えてくれる？';
+  }
+
+  if (lowered.includes('さようなら') || lowered.includes('おやすみ')) {
+    return '今日も話してくれてありがとう🌙またいつでもくまおに話しかけてね！おやすみなさい〜🐻💤';
+  }
+
+  return `うんうん、それって気になることだよね。よかったら、もうちょっと詳しく話してくれる？くまお、ちゃんと聞くからね🐻🎵`;
 }
 
 // イベント処理
 async function handleEvent(event) {
-  if (event.type !== 'message') return null;
+  if (event.type !== 'message' || !event.message.text) return null;
 
-  // テキストメッセージ
-  if (event.message.type === 'text') {
-    const userText = event.message.text;
-    const reply = kumaoReply(userText);
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: reply,
-    });
-  }
+  const userText = event.message.text;
+  const reply = kumaoNaturalReply(userText);
 
-  // 画像メッセージ
-  if (event.message.type === 'image') {
-    const messageId = event.message.id;
-    const stream = await client.getMessageContent(messageId);
-
-    // Gofile等へ画像を一時アップロード → 公開URLに変換（仮処理）
-    const imageBuffer = await streamToBuffer(stream);
-    const imageUrl = await uploadImageToTemporaryHost(imageBuffer); // 自作関数想定
-
-    const visionReply = await analyzeImage(imageUrl);
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: `📷 画像見せてくれてありがとう〜！くまおなりに解釈してみたよ：
-
-${visionReply}`,
-    });
-  }
-
-  return null;
-}
-
-// Stream → Buffer変換
-function streamToBuffer(stream) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    stream.on('data', chunk => chunks.push(chunk));
-    stream.on('end', () => resolve(Buffer.concat(chunks)));
-    stream.on('error', reject);
+  return client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: reply,
   });
-}
-
-// 仮）GoFile等にアップロード → 公開URL取得（本番ではCloudinaryやS3を推奨）
-async function uploadImageToTemporaryHost(buffer) {
-  const formData = new FormData();
-  formData.append('file', buffer, 'image.png');
-  const response = await axios.post('https://store1.gofile.io/uploadFile', formData, {
-    headers: formData.getHeaders(),
-  });
-  return response.data.data.downloadPage; // 公開リンク返却
 }
 
 app.listen(port, () => {
-  console.log(`🐻 くまお先生（GPT-4o Vision対応）はポート ${port} で待機中だよ〜！`);
+  console.log(`🐻 くまお先生（自然会話完全対応版）がポート ${port} で元気に稼働中！`);
 });
