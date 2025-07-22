@@ -14,7 +14,7 @@ const config = {
 const client = new line.Client(config);
 app.use('/webhook', line.middleware(config));
 
-// GoFileアップロード
+// GoFileへ画像アップロード
 async function uploadToGoFile(buffer, filename) {
   const form = new FormData();
   form.append('file', buffer, filename);
@@ -23,21 +23,41 @@ async function uploadToGoFile(buffer, filename) {
   const uploadRes = await axios.post(`https://${server}.gofile.io/uploadFile`, form, {
     headers: form.getHeaders(),
   });
-  return uploadRes.data.data.directLink; // ← Vision対応の directLink を使用
+  return uploadRes.data.data.directLink;
 }
 
-// OpenAI Vision API
-async function askOpenAIVision(imageUrl, prompt) {
-  const res = await axios.post("https://api.openai.com/v1/chat/completions", {
+// OpenAI GPT-4o with Web Search & Vision
+async function askGPTWithTools(userText, imageUrl = null) {
+  const messages = [
+    {
+      role: "system",
+      content: "あなたはくまの先生です。やさしくて面白くて丁寧で、自然な会話スタイルを大切にします。必要に応じて外部情報も調べたり、画像を読み取って説明します。"
+    },
+    {
+      role: "user",
+      content: imageUrl
+        ? [
+            { type: "text", text: userText },
+            { type: "image_url", image_url: { url: imageUrl } }
+          ]
+        : userText
+    }
+  ];
+
+  const response = await axios.post("https://api.openai.com/v1/chat/completions", {
     model: "gpt-4o",
-    messages: [
-      { role: "system", content: "あなたはくまの先生です。優しくて丁寧で、自然な会話を大切にします。絵文字や顔文字も使って親しみやすく答えてください。" },
-      { role: "user", content: [
-          { type: "text", text: prompt },
-          { type: "image_url", image_url: { url: imageUrl } }
-        ]
+    messages,
+    tools: [
+      {
+        type: "function",
+        function: {
+          name: "web_search",
+          description: "リアルタイム情報が必要なときにWeb検索します",
+          parameters: { query: { type: "string" }, }
+        }
       }
     ],
+    tool_choice: "auto",
     max_tokens: 1000,
   }, {
     headers: {
@@ -45,28 +65,12 @@ async function askOpenAIVision(imageUrl, prompt) {
       "Content-Type": "application/json"
     }
   });
-  return res.data.choices[0].message.content;
+
+  const choice = response.data.choices[0];
+  return choice.message.content || "うーん…ちょっと難しかったかも💦";
 }
 
-// GPT-4o自然会話応答
-async function askGPTText(userText) {
-  const res = await axios.post("https://api.openai.com/v1/chat/completions", {
-    model: "gpt-4o",
-    messages: [
-      { role: "system", content: "あなたはくまの先生です。とてもやさしく親しみやすく、自然な会話スタイルで返答します。語尾に顔文字や絵文字も入れて、楽しい雰囲気にしてください。" },
-      { role: "user", content: userText }
-    ],
-    max_tokens: 1000,
-  }, {
-    headers: {
-      "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
-      "Content-Type": "application/json"
-    }
-  });
-  return res.data.choices[0].message.content;
-}
-
-// 画像バイナリ取得
+// LINE画像取得
 async function getImageBuffer(messageId) {
   const stream = await client.getMessageContent(messageId);
   const chunks = [];
@@ -77,41 +81,35 @@ async function getImageBuffer(messageId) {
   });
 }
 
-// イベント処理
+// LINEメッセージ処理
 app.post('/webhook', async (req, res) => {
   const events = req.body.events;
   await Promise.all(events.map(async (event) => {
     if (event.type !== 'message') return;
 
-    if (event.message.type === 'text') {
-      const gptReply = await askGPTText(event.message.text);
-      await client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: gptReply,
-      });
-    }
+    try {
+      if (event.message.type === 'text') {
+        const gptReply = await askGPTWithTools(event.message.text);
+        await client.replyMessage(event.replyToken, { type: 'text', text: gptReply });
+      }
 
-    if (event.message.type === 'image') {
-      try {
+      if (event.message.type === 'image') {
         const buffer = await getImageBuffer(event.message.id);
         const imageUrl = await uploadToGoFile(buffer, 'image.jpg');
-        const visionReply = await askOpenAIVision(imageUrl, "この画像をやさしく分かりやすく説明してね！🐻✨");
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: visionReply,
-        });
-      } catch (e) {
-        console.error(e);
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: 'ううっ…画像の処理でちょっとトラブルがあったみたい💦もう一度送ってみてくれるかな？🥺',
-        });
+        const visionReply = await askGPTWithTools("この画像をやさしく丁寧に説明して！", imageUrl);
+        await client.replyMessage(event.replyToken, { type: 'text', text: visionReply });
       }
+    } catch (e) {
+      console.error(e);
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: 'ごめんね〜💦 なんかエラーが起きちゃったみたい…もう一度お願いできるかな？🐻🙏',
+      });
     }
   }));
   res.sendStatus(200);
 });
 
 app.listen(port, () => {
-  console.log(`🧸 くまおGPT先生（絵文字強化＆画像修正版）がポート ${port} で稼働中！`);
+  console.log("📡 くまおGPTフルパワー先生が起動しました！");
 });
