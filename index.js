@@ -1,8 +1,8 @@
+// GPTくんと会話風の自然な返信をする完全版くまおBot（Visionなし）
 require('dotenv').config();
 const express = require('express');
 const line = require('@line/bot-sdk');
 const { OpenAI } = require('openai');
-
 const app = express();
 const port = process.env.PORT || 8080;
 
@@ -26,29 +26,25 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
   }
 });
 
-// OpenAI GPTくん完全連携くまお返信
-async function kumaoGPTReply(text) {
+// GPTくん風の会話を生成
+async function gptKumaoReply(userMessage) {
   try {
-    const response = await openai.chat.completions.create({
+    const completion = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [
         {
           role: 'system',
-          content: 'あなたは優しくて面白い「くまお先生」です。ユーザーの言葉に自然に反応しながら、温かくて親しみやすい口調で対話してください。形式的な返しは避け、日常会話のように返してください。絵文字も適度に使ってください。',
+          content:
+            'あなたは「くまお先生」という優しくてちょっと面白い先生です。返答は親しみやすく、自然な日本語の会話口調で行ってください。生徒と本当に会話しているように返答してください。絵文字もたまに入れてOKです。',
         },
-        {
-          role: 'user',
-          content: text,
-        },
+        { role: 'user', content: userMessage },
       ],
-      temperature: 0.8,
     });
 
-    const reply = response.choices[0].message.content;
-    return reply;
-  } catch (error) {
-    console.error('OpenAI APIエラー:', error);
-    return 'ちょっとだけ休憩中かも…もう一度お話してくれるとうれしいな🐻';
+    return completion.choices[0].message.content;
+  } catch (err) {
+    console.error('GPTくんエラー:', err);
+    return 'ちょっと今考え中かも…💦 もう一度送ってみてくれる？';
   }
 }
 
@@ -57,7 +53,7 @@ async function handleEvent(event) {
   if (event.type !== 'message' || !event.message.text) return null;
 
   const userText = event.message.text;
-  const reply = await kumaoGPTReply(userText);
+  const reply = await gptKumaoReply(userText);
 
   return client.replyMessage(event.replyToken, {
     type: 'text',
@@ -66,5 +62,5 @@ async function handleEvent(event) {
 }
 
 app.listen(port, () => {
-  console.log(`🐻 くまお先生（完全GPTくん連携版）がポート ${port} で稼働中です！`);
+  console.log(`🐻 くまおGPT先生（GPTくん会話対応）はポート ${port} で稼働中です！`);
 });
