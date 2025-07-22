@@ -1,59 +1,24 @@
-import express from 'express';
-import dotenv from 'dotenv';
-import { Client, middleware } from '@line/bot-sdk';
-
-dotenv.config();
-
-// LINE SDK設定
-const config = {
-  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.LINE_CHANNEL_SECRET,
-};
-
-// LINEクライアント
-const client = new Client(config);
-
-// Expressアプリケーション
+// index.js
+require('dotenv').config();
+const express = require('express');
 const app = express();
-const port = process.env.PORT || 8080;
 
-// JSONボディをparse
-app.use(express.json());
+// ボディは全部テキストとして受け取る（署名検証なし）
+app.use(express.text({ type: '*/*' }));
 
-// Liveness確認用
+// 受信テスト用エンドポイント
+app.post('/webhook', (req, res) => {
+  console.log('📬 Received body:', req.body);
+  // 受け取ったら即200 OK
+  res.status(200).send('OK');
+});
+
+// 任意の GET ルートも用意しておくとデプロイ確認に便利
 app.get('/', (req, res) => {
-  res.send('OK');
+  res.send('👋 Hello, world!');
 });
 
-// Webhookエンドポイント
-app.post('/webhook', middleware(config), async (req, res) => {
-  try {
-    const events = req.body.events;
-    // イベントを一括処理
-    await Promise.all(events.map(handleEvent));
-    // 成功すると必ず200を返す
-    res.status(200).send('');
-  } catch (err) {
-    console.error('Error handling events:', err);
-    res.status(500).end();
-  }
-});
-
-// イベントごとの処理
-async function handleEvent(event) {
-  // テキストメッセージ以外は何もしない
-  if (event.type !== 'message' || event.message.type !== 'text') {
-    return;
-  }
-
-  // メッセージ返信
-  await client.replyMessage(event.replyToken, {
-    type: 'text',
-    text: `あなたは「${event.message.text}」と言いましたね！`,
-  });
-}
-
-// サーバ起動
+const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log(`サーバ起動成功！ポート番号：${port}`);
+  console.log(`🚀 Test server listening on port ${port}`);
 });
