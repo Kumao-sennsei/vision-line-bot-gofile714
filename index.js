@@ -1,128 +1,68 @@
 const express = require('express');
-const line = require('@line/bot-sdk');
+const { middleware, Client } = require('@line/bot-sdk');
 const axios = require('axios');
-const rawBodySaver = require('raw-body');
-const { Readable } = require('stream');
-require('dotenv').config();
+const dotenv = require('dotenv');
+const { OpenAI } = require('openai');
+
+dotenv.config();
 
 const app = express();
-const port = process.env.PORT || 3000;
-
-app.use((req, res, next) => {
-  if (req.headers['content-type']?.includes('application/json')) {
-    rawBodySaver(req, res, next);
-  } else {
-    express.json()(req, res, next);
-  }
-});
-
-const config = {
+app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf } }));
+app.use(middleware({
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
-};
+}));
 
-const client = new line.Client(config);
+const client = new Client({
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+});
 
-app.post('/webhook', line.middleware(config), async (req, res) => {
-  try {
-    const events = req.body.events;
-    const results = await Promise.all(events.map(handleEvent));
-    res.json(results);
-  } catch (err) {
-    console.error("Webhook Error:", err);
-    res.status(500).end();
-  }
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+app.post('/webhook', async (req, res) => {
+  Promise.all(req.body.events.map(handleEvent)).then(result => res.json(result));
 });
 
 async function handleEvent(event) {
-  if (event.type !== 'message') return;
+  if (event.type !== 'message') return null;
 
-  const userMessage = event.message.type === 'text' ? event.message.text : '';
-  const imageId = event.message.type === 'image' ? event.message.id : null;
+  const message = event.message;
+  if (message.type === 'text') {
+    const userText = message.text;
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        { role: 'system', content: 'あなたは優しい先生くまお先生です。質問には丁寧に、会話風に答えてください。' },
+        { role: 'user', content: userText },
+      ],
+      tools: [{
+        type: 'function',
+        function: {
+          name: 'search_web',
+          description: '生徒の質問に関連する最新のウェブ情報を取得します',
+          parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] }
+        }
+      }],
+      tool_choice: 'auto'
+    });
 
-  let imageUrl = null;
+    const reply = response.choices[0].message.content || '回答できませんでした。';
+    return client.replyMessage(event.replyToken, { type: 'text', text: reply });
+  }
 
-  if (imageId) {
+  if (message.type === 'image') {
     try {
-      const stream = await client.getMessageContent(imageId);
-      const buffer = await streamToBuffer(stream);
-      const goFileRes = await axios.post('https://store1.gofile.io/uploadFile', buffer, {
-        headers: { 'Content-Type': 'application/octet-stream' },
-        maxContentLength: Infinity,
-        maxBodyLength: Infinity
-      });
-      imageUrl = goFileRes.data.data.downloadPage;
-    } catch (err) {
-      console.error("Image upload error:", err);
+      const imageBuffer = await client.getMessageContent(message.id);
+      // 仮：Vision APIへの送信処理など
+      return client.replyMessage(event.replyToken, { type: 'text', text: '画像を受け取りました！' });
+    } catch (error) {
+      return client.replyMessage(event.replyToken, { type: 'text', text: '画像の処理中にエラーが発生しました。' });
     }
   }
 
-  const prompt = `
-あなたはくまの先生です。やさしくて面白くて丁寧で、自然な会話スタイルを大切にします。
-生徒の質問に答えるだけでなく、画像があればそれを見て説明し、必要に応じてWeb検索もします。
-`;
-
-  const messages = [
-    { role: "system", content: prompt },
-    { role: "user", content: userMessage || "こんにちは！" }
-  ];
-
-  const tools = [
-    {
-      type: "function",
-      function: {
-        name: "web_search",
-        description: "リアルタイム情報が必要なときにWeb検索します。",
-        parameters: { query: { type: "string" } }
-      }
-    }
-  ];
-
-  if (imageUrl) {
-    messages.push({
-      role: "user",
-      content: [
-        { type: "text", text: "この画像を見て説明して！" },
-        { type: "image_url", image_url: { url: imageUrl } }
-      ]
-    });
-  }
-
-  try {
-    const res = await axios.post("https://api.openai.com/v1/chat/completions", {
-      model: "gpt-4o",
-      messages,
-      tools,
-      tool_choice: "auto",
-      max_tokens: 1000
-    }, {
-      headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json"
-      }
-    });
-
-    const answer = res.data.choices[0].message.content || "ふむふむ…ちょっと難しかったかも 🐻💦";
-    return client.replyMessage(event.replyToken, { type: 'text', text: answer });
-
-  } catch (err) {
-    console.error("GPT API error:", err?.response?.data || err);
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: "💥 エラーが出ちゃったみたい！もう一回送ってくれる？🐻📸"
-    });
-  }
+  return null;
 }
 
-function streamToBuffer(stream) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    stream.on('data', chunk => chunks.push(chunk));
-    stream.on('end', () => resolve(Buffer.concat(chunks)));
-    stream.on('error', reject);
-  });
-}
-
-app.listen(port, () => {
-  console.log(`くまお先生はポート${port}で稼働中です🐻✨🎶`);
+app.listen(3000, () => {
+  console.log('くまお先生はポート3000で稼働中です🧸✨');
 });
