@@ -23,7 +23,7 @@ async function uploadToGoFile(buffer, filename) {
   const uploadRes = await axios.post(`https://${server}.gofile.io/uploadFile`, form, {
     headers: form.getHeaders(),
   });
-  return uploadRes.data.data.downloadPage;
+  return uploadRes.data.data.directLink; // ← Vision対応の directLink を使用
 }
 
 // OpenAI Vision API
@@ -31,7 +31,7 @@ async function askOpenAIVision(imageUrl, prompt) {
   const res = await axios.post("https://api.openai.com/v1/chat/completions", {
     model: "gpt-4o",
     messages: [
-      { role: "system", content: "あなたはくまの先生です。優しくて丁寧で、自然な会話を大切にします。" },
+      { role: "system", content: "あなたはくまの先生です。優しくて丁寧で、自然な会話を大切にします。絵文字や顔文字も使って親しみやすく答えてください。" },
       { role: "user", content: [
           { type: "text", text: prompt },
           { type: "image_url", image_url: { url: imageUrl } }
@@ -53,7 +53,7 @@ async function askGPTText(userText) {
   const res = await axios.post("https://api.openai.com/v1/chat/completions", {
     model: "gpt-4o",
     messages: [
-      { role: "system", content: "あなたはくまの先生です。とてもやさしく親しみやすく、自然な会話スタイルで返答します。" },
+      { role: "system", content: "あなたはくまの先生です。とてもやさしく親しみやすく、自然な会話スタイルで返答します。語尾に顔文字や絵文字も入れて、楽しい雰囲気にしてください。" },
       { role: "user", content: userText }
     ],
     max_tokens: 1000,
@@ -95,7 +95,7 @@ app.post('/webhook', async (req, res) => {
       try {
         const buffer = await getImageBuffer(event.message.id);
         const imageUrl = await uploadToGoFile(buffer, 'image.jpg');
-        const visionReply = await askOpenAIVision(imageUrl, "この画像を見て分かりやすく解説してください。");
+        const visionReply = await askOpenAIVision(imageUrl, "この画像をやさしく分かりやすく説明してね！🐻✨");
         await client.replyMessage(event.replyToken, {
           type: 'text',
           text: visionReply,
@@ -104,7 +104,7 @@ app.post('/webhook', async (req, res) => {
         console.error(e);
         await client.replyMessage(event.replyToken, {
           type: 'text',
-          text: '画像の処理中にエラーが発生しちゃったよ…ごめんね💦',
+          text: 'ううっ…画像の処理でちょっとトラブルがあったみたい💦もう一度送ってみてくれるかな？🥺',
         });
       }
     }
@@ -113,5 +113,5 @@ app.post('/webhook', async (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`🧸 くまおGPT先生がポート ${port} で稼働中！`);
+  console.log(`🧸 くまおGPT先生（絵文字強化＆画像修正版）がポート ${port} で稼働中！`);
 });
