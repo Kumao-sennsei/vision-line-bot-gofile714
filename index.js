@@ -1,4 +1,3 @@
-// 必要なパッケージ
 const line = require('@line/bot-sdk');
 const express = require('express');
 const axios = require('axios');
@@ -7,7 +6,6 @@ require('dotenv').config();
 const app = express();
 app.use(express.json());
 
-// LINE設定
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET
@@ -15,40 +13,76 @@ const config = {
 
 const client = new line.Client(config);
 
-// ユーザーからのメッセージ受信
+// 🧠 正解を一時保存するマップ（ユーザーID → 正解選択肢）
+const userAnswerMap = new Map();
+
 app.post('/webhook', line.middleware(config), async (req, res) => {
   const events = req.body.events;
   const results = await Promise.all(events.map(handleEvent));
   res.json(results);
 });
 
-// メイン処理
 async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text') {
     return Promise.resolve(null);
   }
 
+  const userId = event.source.userId;
   const userMessage = event.message.text;
 
-  // OpenAIで解説生成
+  // 🧠 もしクイズの回答がきたら正誤判定
+  if (userAnswerMap.has(userId)) {
+    const correctAnswer = userAnswerMap.get(userId); // 例: "A"
+    const selected = userMessage.trim().charAt(0);   // 例: "B"
+
+    if (selected === correctAnswer) {
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '🎉 すごーい！そのとおりっ✨やるね〜！'
+      });
+    } else {
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: 'うんうん、惜しかったね〜🐻\n大丈夫！ポイントをもう一度まとめるよ〜✨'
+      });
+    }
+
+    userAnswerMap.delete(userId); // クイズ状態をクリア
+    return;
+  }
+
+  // 💬 解説生成
   const explanation = await generateExplanation(userMessage);
 
-  // クイズ出題（1問のみ／複数化も可能）
-  const quiz = await generateQuizFromExplanation(explanation);
+  // 🤖 クイズ生成（問題文・選択肢・正解記号）
+  const { question, choices, correct } = await generateQuizFromExplanation(explanation);
 
-  // 解説送信
+  // 🔐 正解を保存
+  userAnswerMap.set(userId, correct);
+
+  // 🐻 解説＋クイズ出題
   await client.replyMessage(event.replyToken, {
     type: 'text',
     text: explanation + '\n\nじゃあ、確認させてもらうね！🐻✨'
   });
 
-  // クイズ送信（Quick Reply）
-  await client.pushMessage(event.source.userId, quiz);
-
-  return;
+  await client.pushMessage(userId, {
+    type: 'text',
+    text: question,
+    quickReply: {
+      items: choices.map(choice => ({
+        type: 'action',
+        action: {
+          type: 'message',
+          label: choice.replace(/^. /, ''), // 例: "A. 〜" → "〜"
+          text: choice // 例: "A. 〜"
+        }
+      }))
+    }
+  });
 }
 
-// OpenAIで解説生成
+// ✏️ 解説生成（GPT）
 async function generateExplanation(userText) {
   const response = await axios.post('https://api.openai.com/v1/chat/completions', {
     model: "gpt-4o",
@@ -66,12 +100,12 @@ async function generateExplanation(userText) {
   return response.data.choices[0].message.content.trim();
 }
 
-// クイズ生成（Quick Reply）
+// 🧠 クイズ生成（GPT）
 async function generateQuizFromExplanation(explanationText) {
   const quizPrompt = `
-以下の解説から確認テストを1問だけ作ってください。
-選択肢はA, B, C, Dの4つで、最後の選択肢は「もう少しくわしく知りたい」にしてください。
-正解は必ずA〜Cのどれかにしてください。出力は「問題文」と「選択肢A〜D」のみで。
+以下の解説から、確認テストを1問だけ作ってください。
+選択肢はA, B, C, Dで、Dは「もう少しくわしく知りたい」にしてください。
+正解はA〜Cのどれか1つにして、最後に「正解：A」のように明記してください。
 
 【解説】
 ${explanationText}
@@ -90,32 +124,19 @@ ${explanationText}
     }
   });
 
-  const quizText = quizRes.data.choices[0].message.content.trim();
+  const content = quizRes.data.choices[0].message.content.trim();
+  const lines = content.split('\n').filter(l => l.trim() !== '');
 
-  // クイズ分解
-  const lines = quizText.split('\n').filter(line => line.trim() !== '');
   const question = lines[0];
   const choices = lines.slice(1, 5);
+  const correctLine = lines.find(line => line.includes("正解："));
+  const correct = correctLine ? correctLine.replace("正解：", "").trim().charAt(0) : "A"; // fallback: A
 
-  // Quick Reply形式で返す
-  return {
-    type: 'text',
-    text: question,
-    quickReply: {
-      items: choices.map(choice => ({
-        type: 'action',
-        action: {
-          type: 'message',
-          label: choice.replace(/^. /, ''), // 例: "A. 〇〇" → "〇〇"
-          text: choice // そのままユーザーが送信する
-        }
-      }))
-    }
-  };
+  return { question, choices, correct };
 }
 
-// ポート指定（Railway向け）
+// 🚀 ポート設定（Railway用）
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server running on ${PORT}`);
+  console.log(`くまお先生Botがポート${PORT}で起動しました🐻`);
 });
