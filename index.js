@@ -14,7 +14,10 @@ const config = {
 const client = new line.Client(config);
 const userAnswerMap = new Map(); // 一時保存マップ
 
-// 🌟 LINE署名チェック（raw-body）
+// ⏱️ 遅延関数
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+// LINE署名チェック（raw-body）
 app.post('/webhook', (req, res, next) => {
   getRawBody(req, {
     length: req.headers['content-length'],
@@ -39,7 +42,7 @@ async function handleEvent(event) {
   const userId = event.source.userId;
   const userMessage = event.message.text;
 
-  // 🧠 クイズ回答チェック
+  // ✅ 回答判定
   if (userAnswerMap.has(userId)) {
     const correctAnswer = userAnswerMap.get(userId);
     const selected = userMessage.trim().charAt(0);
@@ -60,19 +63,26 @@ async function handleEvent(event) {
     return;
   }
 
-  // ✏️ 解説を生成
+  // ✏️ 解説生成
   const explanation = await generateExplanation(userMessage);
 
-  // 🤖 クイズ生成
+  // 🧠 クイズ生成
   const { question, choices, correct } = await generateQuizFromExplanation(explanation);
+  userAnswerMap.set(userId, correct);
 
-  userAnswerMap.set(userId, correct); // 正解を保存
+  // 💬 解説だけ先に返信
+  await client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: explanation
+  });
 
-  // 🎁 解説 + クイズを replyMessage でまとめて返す！
-  await client.replyMessage(event.replyToken, [
+  // ⏱️ 少し待ってからクイズを出す（自然な流れに）
+  await delay(1500);
+
+  await client.pushMessage(userId, [
     {
       type: 'text',
-      text: explanation + '\n\nじゃあ、確認させてもらうね！🐻✨'
+      text: 'じゃあ、ちょっと確認してみよっか🐻✨'
     },
     {
       type: 'text',
@@ -144,8 +154,8 @@ ${explanationText}
   return { question, choices, correct };
 }
 
-// ポート設定（Railway用）
+// 🚀 Railway用ポート
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`くまお先生Botがポート${PORT}で起動しました🐻`);
+  console.log(`くまお先生Bot Ver.3がポート${PORT}で起動中🐻✨`);
 });
