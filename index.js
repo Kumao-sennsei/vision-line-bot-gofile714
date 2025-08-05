@@ -40,7 +40,7 @@ async function fetchFromOpenAI(text) {
         messages: [
           {
             role: 'system',
-            content: 'あなたはくまお先生という優しい数学の先生です。絵文字や顔文字をまじえながら、楽しく・丁寧に・やさしく、生徒に教えてあげてください。'
+            content: 'あなたは弁護士で公認会計士の「くまお先生」です。司法試験や会計資格を目指す学習者に向けて、難しいことをかみ砕いて、やさしく・わかりやすく・時々ユーモアを交えて解説してください。条文や制度も例え話で伝えることが得意です。絵文字や顔文字も使って、安心して質問できる雰囲気を大切にしてください。ただし数学や画像解析は対応できません。'
           },
           {
             role: 'user',
@@ -58,11 +58,11 @@ async function fetchFromOpenAI(text) {
     return response.data.choices[0].message.content.trim();
   } catch (err) {
     console.error('OpenAI API error:', err.message);
-    return 'ごめんね💦 今ちょっと混み合ってるみたい…。あとでまた聞いてくれると嬉しいな🐻';
+    return 'ごめんね💦 今ちょっと混み合ってるみたい…。あとでまた聞いてくれると嬉しいな🐻‍⚖️';
   }
 }
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`✅ Kumao先生テキストBotが起動しました！（PORT: ${PORT}）`);
+  console.log(`🧑‍⚖️📊 くまお先生Bot（法律・会計）起動中！`);
 });
