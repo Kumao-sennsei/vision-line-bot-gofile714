@@ -1,10 +1,10 @@
 const line = require('@line/bot-sdk');
 const express = require('express');
 const axios = require('axios');
+const getRawBody = require('raw-body');
 require('dotenv').config();
 
 const app = express();
-app.use(express.json());
 
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -13,15 +13,27 @@ const config = {
 
 const client = new line.Client(config);
 
-// 🧠 正解を一時保存するマップ（ユーザーID → 正解選択肢）
+// 🧠 クイズ正解の一時保存マップ
 const userAnswerMap = new Map();
 
-app.post('/webhook', line.middleware(config), async (req, res) => {
+// 🌟 LINE署名チェック＆生のbody取得
+app.post('/webhook', (req, res, next) => {
+  getRawBody(req, {
+    length: req.headers['content-length'],
+    limit: '1mb',
+    encoding: req.charset || 'utf-8'
+  }, (err, string) => {
+    if (err) return next(err);
+    req.rawBody = string;
+    next();
+  });
+}, line.middleware(config), async (req, res) => {
   const events = req.body.events;
   const results = await Promise.all(events.map(handleEvent));
   res.json(results);
 });
 
+// 🌟 メイン処理
 async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text') {
     return Promise.resolve(null);
@@ -30,7 +42,7 @@ async function handleEvent(event) {
   const userId = event.source.userId;
   const userMessage = event.message.text;
 
-  // 🧠 もしクイズの回答がきたら正誤判定
+  // 🔍 回答が来たときの判定
   if (userAnswerMap.has(userId)) {
     const correctAnswer = userAnswerMap.get(userId); // 例: "A"
     const selected = userMessage.trim().charAt(0);   // 例: "B"
@@ -47,20 +59,20 @@ async function handleEvent(event) {
       });
     }
 
-    userAnswerMap.delete(userId); // クイズ状態をクリア
+    userAnswerMap.delete(userId); // 一問一答形式なのでクリア
     return;
   }
 
-  // 💬 解説生成
+  // ✏️ 解説生成
   const explanation = await generateExplanation(userMessage);
 
-  // 🤖 クイズ生成（問題文・選択肢・正解記号）
+  // 🧠 クイズ生成（問題文・選択肢・正解記号）
   const { question, choices, correct } = await generateQuizFromExplanation(explanation);
 
   // 🔐 正解を保存
   userAnswerMap.set(userId, correct);
 
-  // 🐻 解説＋クイズ出題
+  // 🐻 解説とクイズ出題
   await client.replyMessage(event.replyToken, {
     type: 'text',
     text: explanation + '\n\nじゃあ、確認させてもらうね！🐻✨'
@@ -74,15 +86,15 @@ async function handleEvent(event) {
         type: 'action',
         action: {
           type: 'message',
-          label: choice.replace(/^. /, ''), // 例: "A. 〜" → "〜"
-          text: choice // 例: "A. 〜"
+          label: choice.replace(/^. /, ''), // 例: "A. ~" → " ~"
+          text: choice
         }
       }))
     }
   });
 }
 
-// ✏️ 解説生成（GPT）
+// 💬 GPTで解説生成
 async function generateExplanation(userText) {
   const response = await axios.post('https://api.openai.com/v1/chat/completions', {
     model: "gpt-4o",
@@ -100,7 +112,7 @@ async function generateExplanation(userText) {
   return response.data.choices[0].message.content.trim();
 }
 
-// 🧠 クイズ生成（GPT）
+// 🧠 GPTでクイズ生成
 async function generateQuizFromExplanation(explanationText) {
   const quizPrompt = `
 以下の解説から、確認テストを1問だけ作ってください。
@@ -135,7 +147,7 @@ ${explanationText}
   return { question, choices, correct };
 }
 
-// 🚀 ポート設定（Railway用）
+// 🚀 Railway用ポート指定
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`くまお先生Botがポート${PORT}で起動しました🐻`);
