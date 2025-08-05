@@ -10,6 +10,6 @@
     "axios": "^1.6.8",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "firebase-admin": "^11.11.1"
+    "raw-body": "^2.5.2"
   }
 }
