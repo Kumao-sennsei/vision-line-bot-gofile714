@@ -45,14 +45,8 @@ async function fetchFromOpenAI(text) {
       {
         model: 'gpt-4o',
         messages: [
-          {
-            role: 'system',
-            content: 'あなたは弁護士で公認会計士の「くまお先生」です。士業試験を目指す学習者に、やさしく・丁寧に・わかりやすく・時々ユーモアを交えて解説してください。'
-          },
-          {
-            role: 'user',
-            content: text
-          }
+          { role: 'system', content: 'あなたは弁護士で公認会計士の「くまお先生」です。士業試験を目指す学習者に、やさしく・丁寧に・わかりやすく教えてください。' },
+          { role: 'user', content: text }
         ]
       },
       {
@@ -65,11 +59,11 @@ async function fetchFromOpenAI(text) {
     return response.data.choices[0].message.content.trim();
   } catch (err) {
     console.error('OpenAI API error:', err.message);
-    return 'ごめんね💦 くまお先生、ちょっと休憩中かも…🐻';
+    return "ごめんね😢 くまお先生、ちょっと休憩中かも…🐻";
   }
 }
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`✅ Kumao Bot with Firestore is running on port ${PORT}`);
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
 });
