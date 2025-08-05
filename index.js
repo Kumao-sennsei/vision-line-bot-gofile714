@@ -12,12 +12,12 @@ const config = {
 };
 
 const client = new line.Client(config);
-const userAnswerMap = new Map(); // 一時保存マップ
+const userAnswerMap = new Map();
 
-// ⏱️ 遅延関数
+// ⏱️ 遅延
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-// LINE署名チェック（raw-body）
+// LINE署名チェック
 app.post('/webhook', (req, res, next) => {
   getRawBody(req, {
     length: req.headers['content-length'],
@@ -42,7 +42,16 @@ async function handleEvent(event) {
   const userId = event.source.userId;
   const userMessage = event.message.text;
 
-  // ✅ 回答判定
+  // ✅ 確認テストボタン反応
+  if (userMessage === "今日の確認テスト") {
+    await client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: 'よーし、今日の復習テストをはじめるね〜🐻✨（※今はダミーだよ）'
+    });
+    return;
+  }
+
+  // ✅ 回答チェック
   if (userAnswerMap.has(userId)) {
     const correctAnswer = userAnswerMap.get(userId);
     const selected = userMessage.trim().charAt(0);
@@ -65,18 +74,14 @@ async function handleEvent(event) {
 
   // ✏️ 解説生成
   const explanation = await generateExplanation(userMessage);
-
-  // 🧠 クイズ生成
   const { question, choices, correct } = await generateQuizFromExplanation(explanation);
   userAnswerMap.set(userId, correct);
 
-  // 💬 解説だけ先に返信
   await client.replyMessage(event.replyToken, {
     type: 'text',
     text: explanation
   });
 
-  // ⏱️ 少し待ってからクイズを出す（自然な流れに）
   await delay(1500);
 
   await client.pushMessage(userId, [
@@ -99,6 +104,52 @@ async function handleEvent(event) {
       }
     }
   ]);
+}
+
+// ✅ 「確認テストボタン」送信（リッチメニューで呼び出し）
+async function sendTestButton(userId) {
+  await client.pushMessage(userId, {
+    type: "flex",
+    altText: "📚 今日の確認テストボタンだよ！",
+    contents: {
+      type: "bubble",
+      body: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          {
+            type: "text",
+            text: "📚 今日の確認テスト",
+            weight: "bold",
+            size: "lg",
+            align: "center",
+            color: "#333333",
+            margin: "md"
+          },
+          {
+            type: "text",
+            text: "今日の質問、ちゃんと覚えてるかな？",
+            size: "sm",
+            color: "#777777",
+            align: "center",
+            wrap: true,
+            margin: "md"
+          },
+          {
+            type: "button",
+            action: {
+              type: "message",
+              label: "復習テストをはじめる！",
+              text: "今日の確認テスト"
+            },
+            style: "primary",
+            color: "#905CFF",
+            margin: "md"
+          }
+        ]
+      }
+    }
+  });
 }
 
 // GPTで解説生成
@@ -154,8 +205,8 @@ ${explanationText}
   return { question, choices, correct };
 }
 
-// 🚀 Railway用ポート
+// 🚀 起動
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`くまお先生Bot Ver.3がポート${PORT}で起動中🐻✨`);
+  console.log(`くまお先生Bot Ver.3.5 起動中🐻📚`);
 });
