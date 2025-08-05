@@ -1,15 +1,1 @@
-{
-  "name": "vision-line-bot-gofile714",
-  "version": "1.0.0",
-  "description": "LINE bot using Gofile and GPT-4o",
-  "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
-  "dependencies": {
-    "@line/bot-sdk": "7.5.2",
-    "axios": "^1.6.7",
-    "dotenv": "^16.3.1",
-    "express": "^4.18.2"
-  }
-}
+{ "name": "vision-line-bot-gofile714", "version": "1.0.0", "main": "index.js", "dependencies": { "@line/bot-sdk": "^7.5.2", "express": "^4.18.2", "axios": "^1.6.0", "dotenv": "^16.0.3" } }

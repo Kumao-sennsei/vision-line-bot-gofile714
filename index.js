@@ -1,2 +1,1 @@
-// これは 18:56～19:12 バージョンの仮 index.js です
-console.log('くまお先生：こんにちは〜🧸✨');
+// LINE Bot main entry (GoFile方式)
